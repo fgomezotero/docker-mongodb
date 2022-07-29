@@ -1,0 +1,101 @@
+apiVersion: v1
+kind: Template
+message: May the force be with you
+metadata:
+  annotations:
+    description: Template de backup para bases MongoDB
+    iconClass: icon-mongodb
+    tags: database,nosql,mongodb
+    template.openshift.io/documentation-url: https://github.com/appuio/mongodb-backup
+    template.openshift.io/long-description: Este template define un ScheduledJob el
+      cual consiste en desplegar un POD con un CRON configurado y basado en una imagen
+      de MongoDB. Este cron ejecuta un comando de backup hacia el volumen persistente
+      especificado."
+    template.openshift.io/provider-display-name: AGESIC
+  creationTimestamp: 2018-06-13T13:53:38Z
+  name: mongodb-backup-template
+  namespace: openshift
+  resourceVersion: "52810413"
+  selfLink: /oapi/v1/namespaces/openshift/templates/mongodb-backup-template
+  uid: 2c2371c1-6f11-11e8-851f-005056884631
+objects:
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    labels:
+      app: ${MONGODB_BACKUP_VOLUME_CLAIM}
+    name: ${MONGODB_BACKUP_VOLUME_CLAIM}
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 1Gi
+    volumeName: ${MONGODB_BACKUP_VOLUME_CLAIM}
+  status:
+    accessModes:
+    - ReadWriteMany
+    - ReadOnlyMany
+    - ReadWriteOnce
+    capacity:
+      storage: 1Gi
+    phase: Bound
+- apiVersion: batch/v2alpha1
+  kind: ScheduledJob
+  metadata:
+    name: mongodb-backup
+  spec:
+    concurrencyPolicy: Forbid
+    jobTemplate:
+      spec:
+        template:
+          spec:
+            containers:
+            - command:
+              - bash
+              - -c
+              - ls -rdt /var/lib/mongodb-backup/dump-* | head -n -$MONGODB_BACKUP_KEEP
+                | xargs rm -rf; DIR=/var/lib/mongodb-backup/dump-`date +%F-%T`; mongodump
+                -j 1 -u admin -p $MONGODB_ADMIN_PASSWORD -h $MONGODB_SERVICE_HOST
+                --port $MONGODB_SERVICE_PORT --authenticationDatabase=admin --gzip
+                --out=$DIR; echo "Backup complete"; echo; echo "To restore, use:";
+                echo "~# mongorestore -u admin -p \$MONGODB_ADMIN_PASSWORD --authenticationDatabase
+                admin --gzip $DIR/DB_TO_RESTORE -d DB_TO_RESTORE_INTO"; sleep 60
+              env:
+              - name: MONGODB_BACKUP_KEEP
+                value: ${MONGODB_BACKUP_KEEP}
+              - name: MONGODB_ADMIN_PASSWORD
+                value: ${MONGODB_ADMIN_PASSWORD}
+              - name: MONGODB_SERVICE_HOST
+                value: ${MONGODB_SERVICE_HOST}
+              - name: MONGODB_SERVICE_PORT
+                value: ${MONGODB_SERVICE_PORT}
+              image: registry.access.redhat.com/rhscl/mongodb-32-rhel7@sha256:4143584de718ef477fe03e3ae15985c68e0ce9dca8ba089dfa5927e800e59e69
+              name: mongodb-backup
+              volumeMounts:
+              - mountPath: /var/lib/mongodb-backup
+                name: mongodb-backup
+            restartPolicy: Never
+            volumes:
+            - name: mongodb-backup
+              persistentVolumeClaim:
+                claimName: ${MONGODB_BACKUP_VOLUME_CLAIM}
+    schedule: ${MONGODB_BACKUP_SCHEDULE}
+parameters:
+- description: Cantidad de backups a mantener
+  name: MONGODB_BACKUP_KEEP
+  value: "5"
+- description: 'Cron-like schedule expression. Default: Every day at 22:00 pm'
+  name: MONGODB_BACKUP_SCHEDULE
+  value: 0 22 * * *
+- description: Nombre del Volume Claim
+  name: MONGODB_BACKUP_VOLUME_CLAIM
+  value: mongodb-backup
+- description: Password del usuario admin de MongoDB
+  name: MONGODB_ADMIN_PASSWORD
+- description: Definir SVC expuesto para MongoDB
+  name: MONGODB_SERVICE_HOST
+  value: Mongodb_host
+- description: Definir puerto del SVC expuesto para MongoDB
+  name: MONGODB_SERVICE_PORT
+  value: mongodb_port
